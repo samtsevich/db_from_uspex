@@ -3,10 +3,13 @@
 from ase.io.espresso import read_espresso_out
 from pathlib import Path
 
+import ase.db
 import argparse
+import json
+import numpy as np
 import pandas as pd
 import re
-import ase.db
+import toml
 
 
 def getResFolderName(path: Path = Path.cwd()) -> Path:
@@ -48,6 +51,13 @@ def read_structures(calcfold: Path):
         structures.extend(list(read_espresso_out(fp, index=slice(None))))
     return structures
 
+# TODO
+def get_metadata(params_path: Path) -> dict:
+    assert params_path.exists()
+    with open(params_path) as fp:
+        data = fp.read()
+    return {}
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='parse results of USPEX calculation')
@@ -55,6 +65,8 @@ if __name__ == '__main__':
                         help="Path to the USPEX calculation folder. Should contain CalcFold* and results*")
     parser.add_argument("-db", dest="db_path", default='results.db',
                         help='path to database (if exist) that will store all data')
+    parser.add_argument("-x", dest="only_gen", action="store_true",
+                        help='take only generated and non-optimized structures')
     args = parser.parse_args()
 
     uspex_fold = Path(args.input_path)
@@ -66,13 +78,12 @@ if __name__ == '__main__':
     res_folder = getResFolderName(uspex_fold)
     ext_ch_file = res_folder/'extended_convex_hull'
     good_structs_file = res_folder/'goodStructures'
-    datafile = good_structs_file if good_structs_file.exists() else ext_ch_file
+    datafile = good_structs_file if good_structs_file.is_file() else ext_ch_file
     assert datafile.exists()
 
     with open(datafile) as fp:
         x = fp.read()
         data = parse_ascii_table(x)
-        # print(data)
 
     print(f'TOTAL: {len(data)} points on the extended CH')
 
@@ -81,8 +92,14 @@ if __name__ == '__main__':
         folders = list(uspex_fold.glob(f'CalcFold{id}_*'))
         for f in folders:
             structures = read_structures(f)
-            for i, s in enumerate(structures):
-                spec_data = {'uid': int(id), 'opt_step': i, 'var_cell': 1}
-                db.write(s, key_value_pairs=spec_data)
-            print(f'{j+1}\tfrom folder {f.name} has been added {len(structures)} structures')
-
+            spec_data = {'uid': int(id)}
+            if args.only_gen:
+                spec_data.update({'generated': 1})
+                db.write(structures[0], key_value_pairs=spec_data)
+                print(f'{j+1}\tfrom folder {f.name} has been added only generated structure')
+            else:
+                var_cell = np.allclose(structures[0].get_cell(), structures[-1].get_cell())
+                print(var_cell)
+                for i, s in enumerate(structures):
+                    db.write(s, key_value_pairs=spec_data.update({'opt_step': i, 'var_cell': int(var_cell)}))
+                print(f'{j+1}\tfrom folder {f.name} has been added {len(structures)} structures')
