@@ -159,6 +159,7 @@ if __name__ == '__main__':
     print('----------------------------------')
 
     metadata = get_metadata(input_file)
+    metadata.update({'source': str(uspex_fold), 'mode': mode})
 
     num_stages = len(metadata['opt_stages'])
     is_surface = metadata['system'] == 'surface'
